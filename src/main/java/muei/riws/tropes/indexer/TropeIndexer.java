@@ -129,6 +129,7 @@ public class TropeIndexer {
             			.field("type", "text")
         			.endObject()
             		.startObject("media")
+    					.field("type", "nested")
             			.startObject("properties")
 	                    	.startObject("media_type")
 	                    		.field("type", "text")
@@ -366,8 +367,10 @@ public class TropeIndexer {
 
     	// TODO eliminar variable debug
     	int i = 0;
-    	int imax = 20;
+    	int imax = 5;
     	for(Trope t : tropes) {
+    		if(i >= imax)
+    			break;
     		try {
     			indexTropeDocument(t);
     		} catch (IOException e) {
@@ -375,8 +378,6 @@ public class TropeIndexer {
     			e.printStackTrace();
     		}
     		i++;
-    		if(i >= imax)
-    			break;
     	}
     }
     
