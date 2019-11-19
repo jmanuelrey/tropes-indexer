@@ -2,7 +2,9 @@ package muei.riws.tropes.indexer;
 
 import java.io.IOException;
 import java.net.InetAddress;
-import java.net.UnknownHostException;
+import java.net.URISyntaxException;
+import java.net.URL;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -11,9 +13,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.elasticsearch.action.admin.indices.create.CreateIndexRequest;
-import org.elasticsearch.action.admin.indices.mapping.put.PutMappingRequest;
 import org.elasticsearch.action.index.IndexResponse;
-import org.elasticsearch.client.RequestOptions;
 import org.elasticsearch.client.transport.TransportClient;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.transport.TransportAddress;
@@ -24,7 +24,6 @@ import org.elasticsearch.transport.client.PreBuiltTransportClient;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
-import java.io.IOException;
 
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
@@ -51,55 +50,26 @@ public class TropeIndexer {
 		public String Content;
 		public String Url;
 		public String Laconic;
-		public List<String> RelatedTropos;
+		public List<String> RelatedTropes;
+		public int RelatedTropesCount;
 		public Map<String, List<String>> Media = new HashMap<String, List<String>>();
+		public int MediaTypeCount;
+		public int MediaUrlsCount;
 		
 		public Trope(String name, String content, String url, String laconic, List<String> relatedTropos, Map<String, List<String>> media) {
 			Name = name;
 			Content = content;
 			Url = url;
 			Laconic = laconic;
-			RelatedTropos = relatedTropos;	
+			RelatedTropes = relatedTropos;	
+			RelatedTropesCount = RelatedTropes.size();
 			Media = media;
+			MediaTypeCount = Media.size();
+			MediaUrlsCount = 0;
+			for(List<String> urls : Media.values()) {
+				MediaUrlsCount += urls.size();
+			}
 		}
-	}
-	
-	private static XContentBuilder createTropeSettings() throws IOException {
-		XContentBuilder builder = XContentFactory.jsonBuilder();
-		builder.startObject()
-			.startObject("settings")
-				.startObject("analysis")
-					.startObject("filter")
-						.startObject("english_stop")
-							.field("type", "stop")
-							.field("stopwords", "_english_")
-						.endObject()
-						.startObject("english_stemmer")
-							.field("type", "stemmer")
-							.field("language", "english")
-						.endObject()
-						.startObject("english_possessive_stemmer")
-							.field("type", "stemmer")
-							.field("language", "possessive_english")
-						.endObject()
-					.endObject()
-					.startObject("analyzer")
-						.startObject("rebuilt_english")
-							.field("tokenizer", "standard")
-							.startArray("filter")
-								.value("english_possessive_stemmer")
-								.value("lowercase")
-								.value("english_stop")
-								.value("english_stemmer")
-							.endArray()
-							.field("stopwords", "_english_")
-						.endObject()
-					.endObject()
-				.endObject()
-			.endObject()
-		.endObject();
-		
-		return builder;
 	}
 	
 	private static XContentBuilder createTropeMapping() throws IOException {
@@ -128,6 +98,9 @@ public class TropeIndexer {
             		.startObject("related_tropes")
             			.field("type", "text")
         			.endObject()
+        			.startObject("related_tropes_count")
+        				.field("type", "integer")
+        			.endObject()
             		.startObject("media")
     					.field("type", "nested")
             			.startObject("properties")
@@ -139,6 +112,12 @@ public class TropeIndexer {
                     		.endObject()
     	                .endObject()	                
 	                .endObject()
+            		.startObject("media_type_count")
+	        			.field("type", "long")
+	        		.endObject()
+	        		.startObject("media_urls_count")
+	        			.field("type", "long")
+	        		.endObject()
             	.endObject()
         	.endObject()
     	.endObject();
@@ -181,7 +160,8 @@ public class TropeIndexer {
 	    	.field("content", trope.Content)
 	    	.field("url", trope.Url)
 	    	.field("laconic", trope.Laconic)
-	    	.field("related_tropes", trope.RelatedTropos)
+	    	.field("related_tropes", trope.RelatedTropes)
+	    	.field("related_tropes_count", trope.RelatedTropesCount)
     		.startArray("media");
 		    		for(String mediaType : trope.Media.keySet()) {
 		    			contentBuilder
@@ -193,6 +173,8 @@ public class TropeIndexer {
 		    		
 		contentBuilder
     		.endArray()
+			.field("media_type_count", trope.MediaTypeCount)
+			.field("media_urls_count", trope.MediaUrlsCount)
     		.endObject();
     	
         IndexResponse response = client
@@ -235,7 +217,6 @@ public class TropeIndexer {
     	for(Object urlObj : mediaLinks) {
     		String url = (String) urlObj;
     		// Extract the media type from the url (format "...php/[Media type]/...)
-    		// TODO enum de medios? (para alguna funcionalidad)
     		Matcher m = mediaPattern.matcher(url);
     		if(m.find()) {
 	    		String mediaType = m.group(1);
@@ -267,8 +248,6 @@ public class TropeIndexer {
 	@SuppressWarnings("unchecked")
 	private static Trope parseJsonTrope(JSONObject jsonContent) {
 
-		// TODO comprobar existencia de elementos
-		
 		// Get trope name
 		String tropeName = (String) jsonContent.get("title");
 		System.out.println(tropeName);
@@ -337,13 +316,15 @@ public class TropeIndexer {
 	    
 	}
 	
-    public static void main(String args[]) throws IOException {
+    public static void main(String args[]) throws IOException, URISyntaxException {
 
     	
     	createTropeIndex();
 
-    	String dataFolder = "C:\\Users\\Diego\\Documents\\Universidad\\MUEI\\Recuperacion de la informacion y Web Semantica\\Practica RI\\riws-crawler\\crawler\\data";
-    	final File folder = new File(dataFolder);
+    	
+    	URL res = TropeIndexer.class.getResource("/data");
+    	final File folder = Paths.get(res.toURI()).toFile();
+
     	Pair<List<JSONObject>, List<JSONObject>> allData = getJsonData(folder);
     	List<JSONObject> tropeData = allData.trope;
     	List<JSONObject> laconicData = allData.laconic;
