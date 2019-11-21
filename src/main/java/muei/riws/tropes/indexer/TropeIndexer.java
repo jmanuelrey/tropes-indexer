@@ -13,6 +13,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.elasticsearch.action.admin.indices.create.CreateIndexRequest;
+import org.elasticsearch.action.admin.indices.delete.DeleteIndexRequest;
 import org.elasticsearch.action.index.IndexResponse;
 import org.elasticsearch.client.transport.TransportClient;
 import org.elasticsearch.common.settings.Settings;
@@ -34,6 +35,8 @@ public class TropeIndexer {
     
 	private static final String INDEX_NAME = "tropes";
 	private static final String NODE_NAME = "kiiKFUc";
+	
+	private static final String PMWIKI_URL = "/pmwiki/pmwiki.php/";
 	
 	public static class Pair<T, U> {         
 	    public final T trope;
@@ -140,14 +143,18 @@ public class TropeIndexer {
     }
 	
     private static void createTropeIndex() throws IOException {
+    	
+        TransportClient client = createClient();
+        
+        DeleteIndexRequest deleteIndexRequest = new DeleteIndexRequest(INDEX_NAME);
+    	client.admin().indices().delete(deleteIndexRequest);
         // New index request will be sent to ES service.
-        CreateIndexRequest request = new CreateIndexRequest(INDEX_NAME);
+        CreateIndexRequest createIndexRequest = new CreateIndexRequest(INDEX_NAME);
         // TODO comprobar si el indice existe y eliminarlo
         XContentBuilder builder = createTropeMapping();
-        request.mapping("_doc", builder);
+        createIndexRequest.mapping("_doc", builder);
         
-        TransportClient client = createClient();
-        client.admin().indices().create(request);
+        client.admin().indices().create(createIndexRequest);
         client.close();
         
     }
@@ -200,8 +207,11 @@ public class TropeIndexer {
     		// NOTA: aunque no lo fuese no afectaría especialmente a las estadísticas, ya que todos los tropos tendrían más o menos los mismos
     		// enlaces "erróneos".
     		Matcher m = relatedPattern.matcher(url);
-    		if(m.find())
+    		if(m.find()) {
+    			url = url.replace(PMWIKI_URL + "Main/", "");
+    			url = url.replaceAll("([^_])([A-Z])", "$1 $2");
     			relatedTropes.add(url);
+    		}
     	}
     	
     	return relatedTropes;
@@ -220,6 +230,8 @@ public class TropeIndexer {
     		Matcher m = mediaPattern.matcher(url);
     		if(m.find()) {
 	    		String mediaType = m.group(1);
+    			url = url.replace(PMWIKI_URL + mediaType + "/", "");
+    			url = url.replaceAll("([^_])([A-Z])", "$1 $2");
 	    		if(mediaList.containsKey(mediaType)) {
 	    			mediaList.get(mediaType).add(url);
 	    		} else {
@@ -245,21 +257,19 @@ public class TropeIndexer {
     	return trope;
     }
     
-	@SuppressWarnings("unchecked")
 	private static Trope parseJsonTrope(JSONObject jsonContent) {
 
 		// Get trope name
 		String tropeName = (String) jsonContent.get("title");
-		System.out.println(tropeName);
 		
 		// Get trope content
-		String tropeContent = (String) jsonContent.get("content");	
+		String tropeContent = (String) jsonContent.get("content");
+		tropeContent = tropeContent.replace("•", "\n•");
 
 		// Get trope url
 		String tropeUrl = (String) jsonContent.get("url");	
 
 		// Get laconic content
-		//String laconic = (String) jsonContent.get("laconic");
 		String laconic = "";
 		
 		// Get related tropes
@@ -286,29 +296,31 @@ public class TropeIndexer {
 	        	allData.trope.addAll(data.trope);
 	        	allData.laconic.addAll(data.laconic);
 	        } else {
-	        	try (FileReader reader = new FileReader(fileEntry)) // TODO comprobar consumo de memoria
-	    		{
-	    			//Read JSON file
-	                Object obj = jsonParser.parse(reader);
-	                
-	                JSONObject trope = (JSONObject) obj;
-	                
-	                if(fileEntry.getName().contains("laconic")) {
-	                	allData.laconic.add(trope);
-	                } else {
-		                allData.trope.add(trope);
-	                }
-	                
-	    		} catch (FileNotFoundException e) {
-	                e.printStackTrace();
-	                System.out.println("File " + fileEntry.getName());
-	            } catch (IOException e) {
-	                e.printStackTrace();
-	                System.out.println("File " + fileEntry.getName());
-	            } catch (ParseException e) {
-	                e.printStackTrace();
-	                System.out.println("File " + fileEntry.getName());
-	            }
+	        	if(fileEntry.getName().contains(".json")) {
+		        	try (FileReader reader = new FileReader(fileEntry)) // TODO comprobar consumo de memoria
+		    		{
+		    			//Read JSON file
+		                Object obj = jsonParser.parse(reader);
+		                
+		                JSONObject trope = (JSONObject) obj;
+		                
+		                if(fileEntry.getName().contains("laconic")) {
+		                	allData.laconic.add(trope);
+		                } else {
+			                allData.trope.add(trope);
+		                }
+		                
+		    		} catch (FileNotFoundException e) {
+		                e.printStackTrace();
+		                System.out.println("File " + fileEntry.getName());
+		            } catch (IOException e) {
+		                e.printStackTrace();
+		                System.out.println("File " + fileEntry.getName());
+		            } catch (ParseException e) {
+		                e.printStackTrace();
+		                System.out.println("File " + fileEntry.getName());
+		            }
+	        	}
 	        }
 	    }
 	    
@@ -316,15 +328,14 @@ public class TropeIndexer {
 	    
 	}
 	
-    public static void main(String args[]) throws IOException, URISyntaxException {
-
-    	
-    	createTropeIndex();
-
-    	
-    	URL res = TropeIndexer.class.getResource("/data");
+	private static List<Trope> getTropes(String folderName) throws URISyntaxException {
+		URL res;
+		if(folderName != "" ) {
+			res = TropeIndexer.class.getResource(folderName);
+		} else {
+			res = TropeIndexer.class.getResource("/data");
+		}
     	final File folder = Paths.get(res.toURI()).toFile();
-
     	Pair<List<JSONObject>, List<JSONObject>> allData = getJsonData(folder);
     	List<JSONObject> tropeData = allData.trope;
     	List<JSONObject> laconicData = allData.laconic;
@@ -345,10 +356,27 @@ public class TropeIndexer {
     			}
     		}
     	}
+    	
+    	return tropes;
+		
+	}
+	
+    public static void main(String args[]) throws IOException, URISyntaxException {
+
+    	
+    	createTropeIndex();
+    	
+    	List<Trope> tropes = new ArrayList<Trope>();
+    	String folder = "";
+    	if(args.length > 0) {
+    		folder = args[0];
+    	} 
+		tropes = getTropes(folder);
+    	
 
     	// TODO eliminar variable debug
     	int i = 0;
-    	int imax = 5;
+    	int imax = 10;
     	for(Trope t : tropes) {
     		if(i >= imax)
     			break;
