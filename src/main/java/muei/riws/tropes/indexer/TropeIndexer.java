@@ -80,6 +80,7 @@ public class TropeIndexer {
         XContentBuilder builder = XContentFactory.jsonBuilder();
         builder.startObject()
         	.startObject("_doc")
+        		.field("dynamic", "strict")
         		.startObject("properties")
         			.startObject("name")
         				.field("type", "text")
@@ -102,7 +103,7 @@ public class TropeIndexer {
             			.field("type", "text")
         			.endObject()
         			.startObject("related_tropes_count")
-        				.field("type", "integer")
+        				.field("type", "long")
         			.endObject()
             		.startObject("media")
     					.field("type", "nested")
@@ -165,8 +166,8 @@ public class TropeIndexer {
     	XContentBuilder contentBuilder = XContentFactory.jsonBuilder().startObject()
 	    	.field("name", trope.Name)
 	    	.field("content", trope.Content)
-	    	.field("url", trope.Url)
 	    	.field("laconic", trope.Laconic)
+	    	.field("url", trope.Url)
 	    	.field("related_tropes", trope.RelatedTropes)
 	    	.field("related_tropes_count", trope.RelatedTropesCount)
     		.startArray("media");
@@ -350,8 +351,8 @@ public class TropeIndexer {
     	for(JSONObject data : laconicData) {
     		Trope laconic = parseJsonLaconic(data);
     		for(Trope t : tropes) {
-    			if(t.Name == laconic.Name) {
-    				tropes.get(tropes.indexOf(t)).Laconic = laconic.Content;
+    			if(t.Name.contentEquals(laconic.Name)) {
+    				tropes.get(tropes.indexOf(t)).Laconic = laconic.Laconic;
     				break;
     			}
     		}
@@ -375,18 +376,18 @@ public class TropeIndexer {
     	
 
     	// TODO eliminar variable debug
-    	int i = 0;
-    	int imax = 10;
+    	/*int i = 0;
+    	int imax = 10;*/
     	for(Trope t : tropes) {
-    		if(i >= imax)
-    			break;
+    		/*if(i >= imax)
+    			break;*/
     		try {
     			indexTropeDocument(t);
     		} catch (IOException e) {
     			System.out.println("Could not index trope " + t.Name);
     			e.printStackTrace();
     		}
-    		i++;
+    		//i++;
     	}
     }
     
